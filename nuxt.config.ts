@@ -9,7 +9,9 @@ export default defineNuxtConfig({
     '@unocss/nuxt',
     '@nuxtjs/color-mode'
   ],
+
   css: ['~/assets/css/main.css'],
+
   unocss: {
     nuxtLayers: true,
     attributify: true,
@@ -18,7 +20,6 @@ export default defineNuxtConfig({
     preflight: true
   },
 
-  // ✅ Configure color modes (light/dark)
   colorMode: {
     preference: 'system',
     fallback: 'light',
@@ -37,14 +38,23 @@ export default defineNuxtConfig({
       ]
     }
   },
+
   runtimeConfig: {
     public: {
-      apiBase: 'http://127.0.0.1:8000', // FastAPI URL
+      apiBase: 'https://app.tera-in.top', 
+      siteUrl: 'https://injustify.tera-in.top', 
     },
   },
-  // SSR & Rendering
+
   ssr: true,
+
   nitro: {
     preset: 'node-server'
+  },
+
+  vite: {
+    server: {
+      allowedHosts: ['injustify.tera-in.top'], 
+    }
   }
 })

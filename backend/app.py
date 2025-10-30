@@ -4,64 +4,82 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 from datetime import datetime
-
+from prototype_db import sample_users, sample_posts, sample_properties
+from fastapi import FastAPI, Query
+from fastapi import FastAPI, Body
+from search import get_query_parser
+import re
 app = FastAPI(title="Test API", version="1.0.0")
 
-# Enable CORS for Nuxt development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Nuxt dev server
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000","https://injustify.tera-in.top"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Sample data models
+
 class User(BaseModel):
     id: str
     name: str
     email: str
     created_at: str
+    role: str
+    avatar: str
+    bio: str
+    location: str
+    phone: str
 
-class CreateUserRequest(BaseModel):
-    name: str
-    email: str
 
 class Post(BaseModel):
     id: str
     title: str
     content: str
-    author: str
+    author: str  # user id
     created_at: str
+    image: str
+    category: str
+    likes: int
+    comments: int
+
+
+class Property(BaseModel):
+    id: str
+    title: str
+    description: str
+    price: int
+    location: str
+    bedrooms: int
+    bathrooms: int
+    square_feet: int
+    property_type: str
+    year_built: int
+    owner_id: str
+    created_at: str
+    image: str
+
+class CreateUserRequest(BaseModel):
+    name: str
+    email: str
+
+
 
 class CreatePostRequest(BaseModel):
     title: str
     content: str
     author: str
 
-# In-memory storage (replace with database in production)
 users_db = []
 posts_db = []
+property_db = []
 
-# Initialize with some sample data
 @app.on_event("startup")
 async def startup_event():
-    sample_users = [
-        {"id": "1", "name": "John Doe", "email": "john@example.com", "created_at": "2024-01-15T10:30:00"},
-        {"id": "2", "name": "Jane Smith", "email": "jane@example.com", "created_at": "2024-01-16T14:20:00"},
-        {"id": "3", "name": "Bob Johnson", "email": "bob@example.com", "created_at": "2024-01-17T09:15:00"},
-    ]
-    
-    sample_posts = [
-        {"id": "1", "title": "First Post", "content": "This is the first post content", "author": "1", "created_at": "2024-01-18T10:00:00"},
-        {"id": "2", "title": "Second Post", "content": "This is the second post content", "author": "2", "created_at": "2024-01-18T11:30:00"},
-        {"id": "3", "title": "Third Post", "content": "This is the third post content", "author": "1", "created_at": "2024-01-18T12:45:00"},
-    ]
-    
     users_db.extend(sample_users)
     posts_db.extend(sample_posts)
+    property_db.extend(sample_properties)
 
-# Health check endpoint
 @app.get("/")
 async def root():
     return {"message": "FastAPI Backend is running!", "timestamp": datetime.now().isoformat()}
@@ -70,7 +88,6 @@ async def root():
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-# User endpoints
 @app.get("/users", response_model=List[User])
 async def get_users(skip: int = 0, limit: int = 10):
     return users_db[skip:skip + limit]
@@ -93,7 +110,6 @@ async def create_user(user: CreateUserRequest):
     users_db.append(new_user)
     return new_user
 
-# Post endpoints
 @app.get("/posts", response_model=List[Post])
 async def get_posts(skip: int = 0, limit: int = 10):
     return posts_db[skip:skip + limit]
@@ -117,7 +133,6 @@ async def create_post(post: CreatePostRequest):
     posts_db.append(new_post)
     return new_post
 
-# Search endpoint
 @app.get("/search")
 async def search_posts(q: Optional[str] = None):
     if not q:
@@ -126,7 +141,163 @@ async def search_posts(q: Optional[str] = None):
     results = [p for p in posts_db if q.lower() in p["title"].lower() or q.lower() in p["content"].lower()]
     return {"query": q, "results": results, "count": len(results)}
 
-# Error simulation endpoint
+
+@app.get("/properties", response_model=List[Property])
+async def get_properties(
+    skip: int = 0, 
+    limit: int = 10,
+    property_type: Optional[str] = None,
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    bedrooms: Optional[int] = None
+):
+    """
+    Get properties with filtering and pagination
+    """
+    filtered_properties = property_db
+    
+    # Apply filters
+    if property_type:
+        filtered_properties = [p for p in filtered_properties if p["property_type"].lower() == property_type.lower()]
+    
+    if min_price is not None:
+        filtered_properties = [p for p in filtered_properties if p["price"] >= min_price]
+    
+    if max_price is not None:
+        filtered_properties = [p for p in filtered_properties if p["price"] <= max_price]
+    
+    if bedrooms is not None:
+        filtered_properties = [p for p in filtered_properties if p["bedrooms"] >= bedrooms]
+    
+    #  pagination
+    return filtered_properties[skip:skip + limit]
+
+
+
+@app.get("/properties/type/{property_type}", response_model=List[Property])
+async def get_properties_by_type(property_type: str):
+    """
+    Get all properties of a specific type
+    """
+    properties = [p for p in property_db if p["property_type"].lower() == property_type.lower()]
+    if not properties:
+        raise HTTPException(status_code=404, detail=f"No properties found for type: {property_type}")
+    return properties
+
+
+@app.get("/properties/list/search")
+async def search_properties(
+    type: Optional[str] = Query(None),
+    location: Optional[str] = Query(None),
+    bedrooms: Optional[int] = Query(None),
+):
+    print("Handling Search", type, location, bedrooms)
+
+    results = property_db 
+
+    if type:
+        results = [p for p in results if p["property_type"].lower() == type.lower()]
+    if location:
+        results = [p for p in results if location.lower() in p["location"].lower()]
+    if bedrooms:
+        results = [p for p in results if p["bedrooms"] == bedrooms]
+
+    return results
+
+
+from fastapi import Query, HTTPException
+from typing import Optional
+
+@app.get("/search-properties/v2/nlp-search")
+async def nlp_search(query: Optional[str] = Query(None, description="NLP search query")):
+    """SEO-friendly NLP search (GET)"""
+    
+    # Debug logging
+    print(f"Received query: {query}")
+    
+    # Handle missing or empty query
+    if not query or not query.strip():
+        raise HTTPException(
+            status_code=422, 
+            detail="Query parameter 'q' is required and cannot be empty"
+        )
+
+    try:
+        parsed = await get_query_parser(query.strip().lower())
+        
+        if not parsed["success"]:
+            raise HTTPException(
+                status_code=422, 
+                detail=f"Could not understand query: {parsed.get('error', 'Unknown error')}"
+            )
+
+        entities = parsed.get("entities", {})
+        matched = sample_properties.copy()
+
+        # Apply filters
+        for key, value in entities.items():
+            if not value:
+                continue
+
+            if isinstance(value, list):  # amenities
+                matched = [
+                    p for p in matched
+                    if all(
+                        any(v.lower() in str(p.get(field, "")).lower() 
+                            for field in ["description", "title", "amenities"])
+                        for v in value
+                    )
+                ]
+            else:  # location, property_type, bedrooms, etc.
+                matched = [
+                    p for p in matched
+                    if str(value).lower() in str(p.get(key, "")).lower()
+                ]
+
+        return {
+            "success": True,
+            "query": query,
+            "filters": entities,
+            "results_count": len(matched),
+            "properties": matched,
+            "seo": {
+                "title": f"Properties matching '{query}'",
+                "description": f"Find properties related to: {query}",
+                "image": matched[0]["image"] if matched else ""
+            }
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Internal server error while processing search"
+        )
+
+
+@app.get("/properties/owner/{owner_id}", response_model=List[Property])
+async def get_properties_by_owner(owner_id: str):
+    """
+    Get all properties owned by a specific user
+    """
+    properties = [p for p in property_db if p["owner_id"] == owner_id]
+    if not properties:
+        raise HTTPException(status_code=404, detail=f"No properties found for owner: {owner_id}")
+    return properties
+
+@app.get("/properties/{property_id}", response_model=Property)
+async def get_property(property_id: str):
+    """
+    Get a specific property by ID
+    """
+    property = next((p for p in property_db if p["id"] == property_id), None)
+    if not property:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return property
+
 @app.get("/simulate-error")
 async def simulate_error():
     raise HTTPException(status_code=500, detail="This is a simulated server error")
@@ -141,6 +312,8 @@ async def slow_data(delay: int = 2):
         "data": ["item1", "item2", "item3"],
         "timestamp": datetime.now().isoformat()
     }
+
+
 
 if __name__ == "__main__":
     import uvicorn
